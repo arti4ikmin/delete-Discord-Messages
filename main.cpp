@@ -1,16 +1,19 @@
-﻿#include <iostream>
+﻿#include <fstream>
+#include <iostream>
+#include <limits>
 #include <string>
-#include <vector>
 #include <thread>
 #include <random>
 #include <nlohmann/json.hpp>
 #include <curl/curl.h>
 
 using json = nlohmann::json;
+namespace fs = std::filesystem;
 
 std::string TOKEN;
 std::string GUILD_ID;
 std::string QUERY;
+std::string SAVE_FILE;
 
 // flag for output control real
 bool verbose_fetch = true;
@@ -32,7 +35,7 @@ static size_t WriteCallback(const void* contents, const size_t size, const size_
     const size_t realsize = size * nmemb;
     auto* mem = static_cast<struct MemoryStruct*>(userp);
 
-    auto ptr = static_cast<char*>(realloc(mem->memory, mem->size + realsize + 1));
+    const auto ptr = static_cast<char*>(realloc(mem->memory, mem->size + realsize + 1));
     if (!ptr) return 0;
 
     mem->memory = ptr;
@@ -81,8 +84,8 @@ std::pair<long, std::string> dcReq(const std::string& url, const std::string& me
     return { http_code, response };
 }
 
-std::vector<std::pair<std::string, std::string>> fetchMsgs(const std::string& query) {
-    std::vector<std::pair<std::string, std::string>> messages;
+json fetchMsgs(const std::string& query) {
+    json result = json::array();
     int offset = 0;
     int page = 0;
 
@@ -117,22 +120,25 @@ std::vector<std::pair<std::string, std::string>> fetchMsgs(const std::string& qu
             const int results = static_cast<int>(data["messages"].size());
             
             if (verbose_fetch) {
-                std::cout << "Page " << page + 1 << ": Found " << results << " messages" << std::endl;
+                std::cout << "Page " << page + 1 << ": Found " << results << " more messages." << std::endl;
             }
 
             for (auto& group : data["messages"]) {
                 auto& msg = group[0];
-                messages.emplace_back(
-                    msg["id"].get<std::string>(),
-                    msg["channel_id"].get<std::string>()
-                );
+                json entry = {
+                    {"id", msg["id"].get<std::string>()},
+                    {"channel_id", msg["channel_id"].get<std::string>()},
+                    {"deleted", false},
+                    {"last_attempt", 0}
+                };
+                result.push_back(entry);
             }
 
-            if (results == 0)
-            {
-                std::cout << "Page " << page + 1 << ": No messages found. End was assumably reached." << std::endl;
+            if (results == 0) {
+                std::cout << "End of results reached" << std::endl;
                 break;
             }
+            
             offset += results;
             page++;
             
@@ -145,67 +151,135 @@ std::vector<std::pair<std::string, std::string>> fetchMsgs(const std::string& qu
         }
     }
 
-    return messages;
+    return result;
 }
 
-void deleteMessages(const std::vector<std::pair<std::string, std::string>>& messages) {
+void saveProgress(const json& messages) {
+    std::ofstream file(SAVE_FILE);
+    file << messages.dump(4);
+    if (verbose_fetch) {
+        std::cout << "Progress saved to " << SAVE_FILE << std::endl;
+    }
+}
+
+
+void delMsgs(json& messages) {
     const size_t total = messages.size();
     int processed = 0;
-    
-    for (const auto& [msg_id, channel_id] : messages) {
+    bool needsSaving = false;
+
+    for (auto& msg : messages) {
+        if (msg["deleted"].get<bool>()) {
+            processed++;
+            continue;
+        }
+
         constexpr float base_delay = 1.5f;
 
         // same shit as before "unnecessary temporary string allocations" real
         std::string url = "https://discord.com/api/v9/channels/";
-        url += channel_id;
+        url += msg["channel_id"].get<std::string>();
         url += "/messages/";
-        url += msg_id;
+        url += msg["id"].get<std::string>();
         
         auto [status, response] = dcReq(url, "DELETE");
         
         if (status == 204) {
+            msg["deleted"] = true;
+            needsSaving = true;
+            
             if (processed % 10 == 0) {
-                std::cout << "[" << processed + 1 << "/" << total << "] Deleted message " << msg_id << std::endl;
+                std::cout << "[" << processed + 1 << "/" << total << "] Deleted message " 
+                         << msg["id"].get<std::string>() << std::endl;
+                //if (needsSaving) {  }
+                saveProgress(messages);
+                needsSaving = false;
+                
             }
         } else {
-            std::cerr << "Failed to delete " << msg_id << " (HTTP " << status << ") are you sure it exists or you have perms to delete it?" << std::endl;
+            msg["last_attempt"] = time(nullptr);
+            std::cerr << "Failed to delete " << msg["id"].get<std::string>() 
+                     << " (HTTP " << status << ")" << std::endl;
         }
 
         processed++;
         randDelay(base_delay, 0.5f);
+    }
+
+    if (needsSaving) {
+        saveProgress(messages);
     }
 }
 
 int main() {
     std::cout << "Please enter the guild ID you want your msgs to be deleted in: ";
     std::getline(std::cin, GUILD_ID);
+
     
-    std::cout << "Enter search query (e.g., author_id=1234&contains=hello): ";
-    std::getline(std::cin, QUERY);
+    SAVE_FILE = "guild_" + GUILD_ID + "_msgs.json";
+    json msgs;
 
-    std::cout << "Enter your token: ";
-    std::getline(std::cin, TOKEN);
+    if (fs::exists(SAVE_FILE)) {
+        std::cout << "Found existing save file. Resume? (y/n): ";
+        std::string choice;
+        std::cin >> choice;
 
-    std::cout << "\nStarting msgs fetch..." << std::endl;
-    const auto messages = fetchMsgs(QUERY);
-    std::cout << "\nTotal msgs found: " << messages.size() << std::endl;
+        std::cin.ignore();
+        if (choice == "y" || choice == "Y") {
+            std::ifstream file(SAVE_FILE);
+            file >> msgs;
+            std::cout << "Loaded " << msgs.size() << " msgs from save file" << std::endl;
 
-    if (!messages.empty()) {
-        const float est_time = static_cast<float>(messages.size()) * 1.8f / 60; // 1.5s base + 0.3s avg jitter
-        std::cout << "\nWARNING: This operation will take approximately " 
-                  << std::fixed << std::setprecision(1) << est_time 
-                  << " minutes to complete\n";
-        std::cout << "Type 'I AM SURE' to confirm deletion: ";
-        
+            std::cout << "Enter your token: ";
+            std::getline(std::cin, TOKEN);
+        } else {
+            fs::remove(SAVE_FILE);
+        }
+    }
+
+    if (!fs::exists(SAVE_FILE)) {
+        std::cout << "Enter search query (e.g., author_id=1234&contains=hello): ";
+        std::getline(std::cin, QUERY);
+
+        std::cout << "Enter your token: ";
+        std::getline(std::cin, TOKEN);
+
+        std::cout << "\nStarting msgs fetch... (amount of pages ≈ amount of messages / 25)" << std::endl;
+        msgs = fetchMsgs(QUERY);
+        saveProgress(msgs);
+        std::cout << "\nTotal msgs found: " << msgs.size() << std::endl;
+    }
+
+    if (!msgs.empty()) {
+        const float est_time = static_cast<float>(msgs.size()) * 1.8f / 60;
+        std::cout << "\nWARNING: Operation will take ~" << std::fixed << std::setprecision(1) 
+                 << est_time << " minutes" << std::endl;;
+        std::cout << "Type 'sure' to confirm deletion: ";
         std::string confirm;
         std::cin >> confirm;
         
-        if (confirm == "I AM SURE") {
-            std::cout << "\nStarting deletion process... Await..." << std::endl;
-            deleteMessages(messages);
-            std::cout << "\nDeletion completed! Processed " << messages.size() << " messages." << std::endl;
+        if (confirm == "sure") {
+            std::cout << "\nStarting deletion process... (progress will be shown every 10 messages)" << std::endl;
+            
+            delMsgs(msgs);
+            
+            // Clean up if all deleted
+            bool all_deleted = true;
+            for (const auto& msg : msgs) {
+                if (!msg["deleted"].get<bool>()) {
+                    all_deleted = false;
+                    break;
+                }
+            }
+            
+            if (all_deleted) {
+                fs::remove(SAVE_FILE);
+                std::cout << "Cleanup: Removed save file\n";
+            }
+            
+            std::cout << "\nDeletion completed! Processed " << msgs.size() << " messages.\n";
         } else {
-            std::cout << "Deletion cancelled..." << std::endl;
+            std::cout << "Deletion cancelled...\n";
         }
     }
 
