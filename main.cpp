@@ -10,10 +10,12 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
+
 std::string TOKEN;
-std::string GUILD_ID;
+std::string TARGET_ID;
 std::string QUERY;
 std::string SAVE_FILE;
+bool is_dm_mode = false;
 
 // flag for output control real
 bool verbose_fetch = true;
@@ -84,7 +86,7 @@ std::pair<long, std::string> dcReq(const std::string& url, const std::string& me
     return { http_code, response };
 }
 
-json fetchMsgs(const std::string& query) {
+json fetchMsgsGuild(const std::string& query) {
     json result = json::array();
     int offset = 0;
     int page = 0;
@@ -93,7 +95,7 @@ json fetchMsgs(const std::string& query) {
 
         // compiler tells "String concatenation results in allocation of unnecessary temporary strings; consider using 'operator+='", so Ive decided to just make as it says lol
         std::string url = "https://discord.com/api/v9/guilds/";
-        url += GUILD_ID;
+        url += TARGET_ID;
         url += "/messages/search?";
         url += query;
         url += "&offset=";
@@ -101,7 +103,7 @@ json fetchMsgs(const std::string& query) {
 
         
         if (verbose_fetch) {
-            std::cout << "Fetching page " << page + 1 << " (" << offset << " offset)" << std::endl;
+            std::cout << "Fetching guild page " << page + 1 << " (" << offset << " offset)" << std::endl;
         }
         
         auto [status, response] = dcReq(url);
@@ -135,7 +137,7 @@ json fetchMsgs(const std::string& query) {
             }
 
             if (results == 0) {
-                std::cout << "End of results reached" << std::endl;
+                std::cout << "End of Guild results reached" << std::endl;
                 break;
             }
             
@@ -153,6 +155,72 @@ json fetchMsgs(const std::string& query) {
 
     return result;
 }
+
+json fetchMsgsDM(const std::string& query) {
+    json result = json::array();
+    int offset = 0;
+    int page = 0;
+
+    while (true) {
+        std::string url = "https://discord.com/api/v9/channels/";
+        url += TARGET_ID;
+        url += "/messages/search?";
+        url += query;
+        url += "&offset=";
+        url += std::to_string(offset);
+
+        if (verbose_fetch) {
+            std::cout << "Fetching DM page " << page + 1 << " (" << offset << " offset)" << std::endl;
+        }
+        
+        auto [status, response] = dcReq(url);
+        
+        if (status == 400) {
+            std::cout << "Reached end of results (400 Bad Request)" << std::endl;
+            break;
+        }
+        if (status != 200) {
+            std::cerr << "Err fetching messages: HTTP " << status << std::endl;
+            break;
+        }
+
+        try {
+            json data = json::parse(response);
+            const int results = static_cast<int>(data["messages"].size());
+            
+            if (verbose_fetch) {
+                std::cout << "Page " << page + 1 << ": Found " << results << " more messages." << std::endl;
+            }
+
+            for (auto& group : data["messages"]) {
+                auto& msg = group[0];
+                json entry = {
+                    {"id", msg["id"].get<std::string>()},
+                    {"channel_id", TARGET_ID}, // channel_id is same as target
+                    {"deleted", false},
+                    {"last_attempt", 0}
+                };
+                result.push_back(entry);
+            }
+
+            if (results == 0) {
+                std::cout << "End of DM results reached" << std::endl;
+                break;
+            }
+            
+            offset += results;
+            page++;
+            randDelay(3.0f, 0.8f);
+            
+        } catch (const std::exception& e) {
+            std::cerr << "J err: " << e.what() << std::endl;
+            break;
+        }
+    }
+    return result;
+}
+
+
 
 void saveProgress(const json& messages) {
     std::ofstream file(SAVE_FILE);
@@ -212,26 +280,30 @@ void delMsgs(json& messages) {
 }
 
 int main() {
-    std::cout << "Please enter the guild ID you want your msgs to be deleted in: ";
-    std::getline(std::cin, GUILD_ID);
+    std::cout << "Delete messages in:\n1. Guild\n2. Direct Messages\nChoose (1/2): ";
+    int choice;
+    std::cin >> choice;
+    std::cin.ignore();
 
+    is_dm_mode = (choice == 2);
+    std::string target_type = is_dm_mode ? "DM channel" : "guild";
     
-    SAVE_FILE = "guild_" + GUILD_ID + "_msgs.json";
+    std::cout << "Please enter the " << target_type << " ID: ";
+    std::getline(std::cin, TARGET_ID);
+
+    SAVE_FILE = (is_dm_mode ? "dm_" : "guild_") + TARGET_ID + "_msgs.json"; // the silly ? is so irritating here, but much cleaner than if here
     json msgs;
 
     if (fs::exists(SAVE_FILE)) {
         std::cout << "Found existing save file. Resume? (y/n): ";
-        std::string choice;
-        std::cin >> choice;
-
+        std::string resume_choice;
+        std::cin >> resume_choice;
         std::cin.ignore();
-        if (choice == "y" || choice == "Y") {
+
+        if (resume_choice == "y" || resume_choice == "Y") {
             std::ifstream file(SAVE_FILE);
             file >> msgs;
             std::cout << "Loaded " << msgs.size() << " msgs from save file" << std::endl;
-
-            std::cout << "Enter your token: ";
-            std::getline(std::cin, TOKEN);
         } else {
             fs::remove(SAVE_FILE);
         }
@@ -244,10 +316,10 @@ int main() {
         std::cout << "Enter your token: ";
         std::getline(std::cin, TOKEN);
 
-        std::cout << "\nStarting msgs fetch... (amount of pages ≈ amount of messages / 25)" << std::endl;
-        msgs = fetchMsgs(QUERY);
+        std::cout << "\nStarting messages fetch..." << std::endl;
+        msgs = is_dm_mode ? fetchMsgsDM(QUERY) : fetchMsgsGuild(QUERY);
         saveProgress(msgs);
-        std::cout << "\nTotal msgs found: " << msgs.size() << std::endl;
+        std::cout << "\nTotal messages found: " << msgs.size() << std::endl;
     }
 
     if (!msgs.empty()) {
