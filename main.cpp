@@ -303,7 +303,7 @@ int main() {
         if (resume_choice == "y" || resume_choice == "Y") {
             std::ifstream file(SAVE_FILE);
             file >> msgs;
-            std::cout << "Loaded " << msgs.size() << " msgs from save file" << std::endl;
+            std::cout << "Loaded " << msgs.size() << " msgs from save file." << std::endl;
         } else {
             fs::remove(SAVE_FILE);
         }
