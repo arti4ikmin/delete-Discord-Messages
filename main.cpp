@@ -1,6 +1,5 @@
 ﻿#include <fstream>
 #include <iostream>
-#include <limits>
 #include <string>
 #include <thread>
 #include <random>
@@ -31,6 +30,14 @@ void randDelay(const float base, const float jit) {
     std::uniform_real_distribution<> dis(0, jit);
     const double delay = base + dis(gen);
     std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(delay * 1000)));
+}
+
+void saveProgress(const json& messages) {
+    std::ofstream file(SAVE_FILE);
+    file << messages.dump(4);
+    if (verbose_fetch) {
+        std::cout << "Progress saved to " << SAVE_FILE << std::endl;
+    }
 }
 
 static size_t WriteCallback(const void* contents, const size_t size, const size_t nmemb, void* userp) {
@@ -135,7 +142,8 @@ json fetchMsgsGuild(const std::string& query) {
                 };
                 result.push_back(entry);
             }
-
+            saveProgress(result);
+            
             if (results == 0) {
                 std::cout << "End of Guild results reached" << std::endl;
                 break;
@@ -145,7 +153,7 @@ json fetchMsgsGuild(const std::string& query) {
             page++;
             
             // if you want it to be faster edit this
-            randDelay(3.0f, 0.8f);
+            randDelay(2.0f, 0.6f);
             
         } catch (const std::exception& e) {
             std::cerr << "J err: " << e.what() << std::endl;
@@ -202,7 +210,8 @@ json fetchMsgsDM(const std::string& query) {
                 };
                 result.push_back(entry);
             }
-
+            saveProgress(result);
+            
             if (results == 0) {
                 std::cout << "End of DM results reached" << std::endl;
                 break;
@@ -210,7 +219,7 @@ json fetchMsgsDM(const std::string& query) {
             
             offset += results;
             page++;
-            randDelay(3.0f, 0.8f);
+            randDelay(2.0f, 0.6f);
             
         } catch (const std::exception& e) {
             std::cerr << "J err: " << e.what() << std::endl;
@@ -221,29 +230,26 @@ json fetchMsgsDM(const std::string& query) {
 }
 
 
-
-void saveProgress(const json& messages) {
-    std::ofstream file(SAVE_FILE);
-    file << messages.dump(4);
-    if (verbose_fetch) {
-        std::cout << "Progress saved to " << SAVE_FILE << std::endl;
-    }
-}
-
-
-void delMsgs(json& messages) {
+void delMsgs(json& messages, bool reverse) {
     const size_t total = messages.size();
     int processed = 0;
     bool needsSaving = false;
+    float delayBetweenDel = 1.0f;
 
-    for (auto& msg : messages) {
+    // Create processing order
+    std::vector<size_t> indices;
+    for (size_t i = 0; i < total; ++i) indices.push_back(i);
+    if (reverse) std::reverse(indices.begin(), indices.end());
+
+    for (size_t idx : indices) {
+        TryAgain:
+        auto& msg = messages[idx];
         if (msg["deleted"].get<bool>()) {
             processed++;
             continue;
         }
 
-        constexpr float base_delay = 1.5f;
-
+        
         // same shit as before "unnecessary temporary string allocations" real
         std::string url = "https://discord.com/api/v9/channels/";
         url += msg["channel_id"].get<std::string>();
@@ -270,8 +276,20 @@ void delMsgs(json& messages) {
                      << " (HTTP " << status << ")" << std::endl;
         }
 
+        if (status == 429)
+        {
+            std::cout << "\nOh no! It seems like you are rate limited, lets wait a few seconds to cool down.\t (Response was: " << response << ")" << std::endl;
+            randDelay(8.0f, 1.0f);
+            if (delayBetweenDel < 2.0f)
+            {
+                delayBetweenDel += 0.05f;
+            }
+            std::cout << "Added 5 ms to deletion delay. \nTrying to delete " << processed + 1 << " again..." << std::endl;
+            goto TryAgain;
+        }
+
         processed++;
-        randDelay(base_delay, 0.5f);
+        randDelay(delayBetweenDel, 0.2f);
     }
 
     if (needsSaving) {
@@ -303,7 +321,10 @@ int main() {
         if (resume_choice == "y" || resume_choice == "Y") {
             std::ifstream file(SAVE_FILE);
             file >> msgs;
-            std::cout << "Loaded " << msgs.size() << " msgs from save file." << std::endl;
+            std::cout << "Loaded " << msgs.size() << " msgs from save file. (-- NOTICE -- You might get a few 404s, it is normal unless this exceeds about 20 times,\n \t\t\tif it does so, try refetching or checking if you have any messages left to delete.)" << std::endl;
+
+            std::cout << "Enter your token: ";
+            std::getline(std::cin, TOKEN);
         } else {
             fs::remove(SAVE_FILE);
         }
@@ -323,7 +344,7 @@ int main() {
     }
 
     if (!msgs.empty()) {
-        const float est_time = static_cast<float>(msgs.size()) * 1.8f / 60;
+        const float est_time = static_cast<float>(msgs.size()) * 1.0f / 60;
         std::cout << "\nWARNING: Operation will take ~" << std::fixed << std::setprecision(1) 
                  << est_time << " minutes" << std::endl;;
         std::cout << "Type 'sure' to confirm deletion: ";
@@ -331,9 +352,13 @@ int main() {
         std::cin >> confirm;
         
         if (confirm == "sure") {
-            std::cout << "\nStarting deletion process... (progress will be shown every 10 messages)" << std::endl;
-            
-            delMsgs(msgs);
+            std::cout << "Delete from oldest to newest? (y/n): ";
+            std::string reverseCin;
+            std::cin >> reverseCin;
+            bool reverseDel = (reverseCin == "y" || reverseCin == "Y"); // this compact syntax is useful ngl
+        
+            std::cout << "\nStarting deletion process..." << std::endl;
+            delMsgs(msgs, reverseDel);
             
             // Clean up if all deleted
             bool all_deleted = true;
@@ -351,8 +376,7 @@ int main() {
             
             std::cout << "\nDeletion completed! Processed " << msgs.size() << " messages.\n";
         } else {
-            std::cout << "Deletion cancelled...\n";
-        }
+            std::cout << "Deletion cancelled...\n";        }
     }
 
     return 0;
