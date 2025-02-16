@@ -4,6 +4,13 @@ project(deleteSearchQuery)
 set(CMAKE_CXX_STANDARD 23)
 
 add_executable(deleteSearchQuery main.cpp
+        dcWebHook.cpp
+        dcWebHook.h
+        main.h
+        fetcher.cpp
+        fetcher.h
+        deletion.cpp
+        deletion.h
 )
 
 find_package(CURL REQUIRED)
