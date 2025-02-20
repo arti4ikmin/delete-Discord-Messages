@@ -57,7 +57,7 @@ void sendHookMsg(const std::string &message) {
 
     CURL *curl = curl_easy_init();
     if (!curl) {
-        std::cerr << "Failed to initialize CURL." << std::endl;
+        std::cout << "Failed to initialize CURL." << std::endl;
         return;
     }
     curl_slist *headers = nullptr;
@@ -69,7 +69,7 @@ void sendHookMsg(const std::string &message) {
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonPayload.c_str());
 
     if (const CURLcode res = curl_easy_perform(curl); res != CURLE_OK) {
-        std::cerr << "CURL POST failed: " << curl_easy_strerror(res) << std::endl;
+        std::cout << "CURL POST failed: " << curl_easy_strerror(res) << std::endl;
     }
 
     curl_slist_free_all(headers);

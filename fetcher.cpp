@@ -51,7 +51,7 @@ std::pair<long, std::string> dcReq(const std::string& url, const std::string& me
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, static_cast<void*>(&chunk));
 
         if (const CURLcode res = curl_easy_perform(curl); res != CURLE_OK) {
-            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+            std::cout << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
         } else {
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
         }
@@ -68,7 +68,8 @@ std::pair<long, std::string> dcReq(const std::string& url, const std::string& me
 }
 
 json fetchMsgsGuild(const std::string& query) {
-    float delayBetweenFetch = 2.0f;
+    int fuckupcounter = 0;
+    float delayBetweenFetch = 2.5f;
     json result = json::array();
     int offset = 0;
     int page = 0;
@@ -95,7 +96,7 @@ json fetchMsgsGuild(const std::string& query) {
             break;
         }
         if (status != 200 && status != 429) {
-            std::cerr << "Err fetching messages: HTTP " << status << std::endl;
+            std::cout << "Err fetching messages: HTTP " << status << std::endl;
             break;
         }
         
@@ -123,12 +124,16 @@ json fetchMsgsGuild(const std::string& query) {
                 if (status == 429)
                 {
                     std::cout << "\nOh no! It seems like you are rate limited, lets wait a few seconds to cool down.\t (Response was: " << response << ")" << std::endl;
-                    randDelay(5.0f, 1.0f);
-                    if (delayBetweenFetch < 4.0f)
+                    randDelay(8.0f, 1.0f);
+                    if (delayBetweenFetch < 6.0f)
                     {
-                        delayBetweenFetch += 0.1f;
+                        delayBetweenFetch += 0.5f;
                     }
-                    std::cout << "Added 10 ms to fetch delay. \nTrying to fetch Page " << page + 1 << " again..." << std::endl;
+                    fuckupcounter++;
+                    if (fuckupcounter > 15 || offset > 9900) { break; }
+                    // break; // COMMENT OUT IN FUTURE
+                    std::cout << "Added 1/2 s to fetch delay. \nTrying to fetch Page " << page + 1 << " again..." << std::endl;
+                    page -= 1;
                 }
                 else
                 {
@@ -144,7 +149,7 @@ json fetchMsgsGuild(const std::string& query) {
             randDelay(delayBetweenFetch, 0.6f);
             
         } catch (const std::exception& e) {
-            std::cerr << "J err: " << e.what() << std::endl;
+            std::cout << "J err: " << e.what() << std::endl;
             break;
         }
     }
@@ -176,7 +181,7 @@ json fetchMsgsDM(const std::string& query) {
             break;
         }
         if (status != 200) {
-            std::cerr << "Err fetching messages: HTTP " << status << std::endl;
+            std::cout << "Err fetching messages: HTTP " << status << std::endl;
             break;
         }
 
@@ -210,7 +215,7 @@ json fetchMsgsDM(const std::string& query) {
             randDelay(2.0f, 0.6f);
             
         } catch (const std::exception& e) {
-            std::cerr << "J err: " << e.what() << std::endl;
+            std::cout << "J err: " << e.what() << std::endl;
             break;
         }
     }

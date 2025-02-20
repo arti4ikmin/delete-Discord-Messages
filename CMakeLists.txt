@@ -3,7 +3,8 @@ project(deleteSearchQuery)
 
 set(CMAKE_CXX_STANDARD 23)
 
-add_executable(deleteSearchQuery main.cpp
+add_executable(deleteSearchQuery WIN32
+        main.cpp
         dcWebHook.cpp
         dcWebHook.h
         main.h
@@ -18,3 +19,6 @@ target_link_libraries(deleteSearchQuery PRIVATE CURL::libcurl)
 
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(deleteSearchQuery PRIVATE nlohmann_json::nlohmann_json)
+
+find_package(wxWidgets CONFIG REQUIRED COMPONENTS core base)
+target_link_libraries(deleteSearchQuery PRIVATE wx::core wx::base)

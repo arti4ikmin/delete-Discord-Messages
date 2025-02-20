@@ -6,8 +6,10 @@
 
 using json = nlohmann::json;
 
-void randDelay(const float base, const float jit);
+void randDelay(float base, float jit);
 void saveProgress(const json& messages);
+
+
 
 // declare, definedin main already
 extern std::string TOKEN;

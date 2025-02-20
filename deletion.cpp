@@ -13,7 +13,7 @@ void delMsgs(json& messages, const bool reverse) {
     const size_t total = messages.size();
     int processed = 0;
     bool needsSaving = false;
-    float delayBetweenDel = 1.0f;
+    float delayBetweenDel = 1.4f;
 
     // Create processing order
     std::vector<size_t> indices;
@@ -51,13 +51,13 @@ void delMsgs(json& messages, const bool reverse) {
             }
         } else {
             msg["last_attempt"] = time(nullptr);
-            std::cerr << "Failed to delete " << msg["id"].get<std::string>() 
+            std::cout << "Failed to delete " << msg["id"].get<std::string>() 
                      << " (HTTP " << status << ") Response:" << response << std::endl;
         }
 
         if (status == 429)
         {
-            std::cout << "\nOh no! It seems like you are rate limited, lets wait a few seconds to cool down.\t (Response was: " << response << ")" << std::endl;
+            std::cout << "\nOh no! It seems like you are rate limited, lets wait a few seconds to cool down." << std::endl;
             randDelay(8.0f, 1.0f);
             if (delayBetweenDel < 2.0f)
             {
