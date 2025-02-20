@@ -210,7 +210,7 @@ public:
 
         auto* menuBar = new wxMenuBar();
         auto* fileMenu = new wxMenu();
-        wxMenuItem* settingsItem = fileMenu->Append(wxID_ANY, "Settings");
+        const wxMenuItem* settingsItem = fileMenu->Append(wxID_ANY, "Settings");
         fileMenu->Append(wxID_EXIT, "Exit");
         menuBar->Append(fileMenu, "More");
         wxFrameBase::SetMenuBar(menuBar);
@@ -254,9 +254,13 @@ public:
     ~MainWindow() override
     {
         if(m_thread) {
-            m_thread->Delete();
-            m_thread->Wait();
+            if (m_thread->IsRunning())
+            {
+                m_thread->Delete();
+                m_thread->Wait();
+            }
             delete m_thread;
+            m_thread = nullptr;
         }
     }
 
