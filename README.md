@@ -9,8 +9,10 @@ A tool inspired by UnDiscord, a local gui version designed to be more stable
 - Stable (unlike UnDiscord which is the biggest problem)
 
 ## USE https://arti4ikmin.github.io/queries/ TO GENERATE YOUR QUERIES
-![img.png](img.png)
-![img_1.png](img_1.png)
+
+![Screenshot 2025-02-20 160021](https://github.com/user-attachments/assets/16bfca45-96e6-4e24-b5bb-500acb34b003)
+![Screenshot 2025-02-20 160129](https://github.com/user-attachments/assets/d2942497-f9d9-4205-bb3d-496b0f7cfffc)
+
 ---
 
 
